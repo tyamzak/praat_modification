@@ -94,6 +94,7 @@ form Detect Syllables and Filled Pauses in Speech Utterances
   comment ある.wavファイルを全て読み込み、処理し,
   comment TextGridのみが出力されます。
 
+
   comment ________________________________________________________________________________
 
   comment  Parameters Syllabe Nuclei:
@@ -174,7 +175,9 @@ for file to nrFiles
       Save as tab-separated file: directory$ + replace$(filename$[file], ext$, ".auto.Table", 1)
       endif
     @countFilledPauses: idTG#[file]
-    @createblank: idTG#[file]
+    @createBlankTier: idTG#[file]
+    @createJapaneseTier: idTG#[file]
+
   else
     @terminateLines
     endif
@@ -500,8 +503,14 @@ procedure coda
     endif
   endproc
 
-procedure createblank: .id
+procedure createBlankTier: .id
     selectObject: .id
     Insert interval tier: 4, "Repair"
+ 
+    endproc
+
+procedure createJapaneseTier: .id
+    selectObject: .id
+    Insert interval tier: 5, "Japanese"
  
     endproc

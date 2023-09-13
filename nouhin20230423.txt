@@ -1,0 +1,37 @@
+使用方法
+
+[batchrate => FluencyProsody]
+
+
+1. batchrate.praat
+
+JapaneseTierが追加されるよう、変更されております。
+
+
+
+2. 手動変更
+
+TextGridファイルに対して手動変更頂きます。
+
+
+
+3. IntensityPitchAverageTiersAdd.praat
+
+サウンドファイルと同時に読み込む必要がございます。
+
+手動変更したTier3に基いて、IntensityTierとPitchTierが作成されます。
+
+
+
+4. tgfilesへの移動
+
+3での処理が終わったTextGridファイルをtgfilesというフォルダに集めます。
+
+
+
+5. FluencyProsody.py
+
+tgfilesフォルダと同じ階層にpythonファイルを配置し、実行します。
+
+FluProMasterResults.xlsxが出力されます。
+
