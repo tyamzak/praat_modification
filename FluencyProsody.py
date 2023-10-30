@@ -4,6 +4,7 @@ import math
 from praatio import textgrid
 
 from typing import Tuple, List
+import shutil
 
 
 class tgdata:
@@ -844,7 +845,7 @@ class tgdata:
         # absにNaNがある行を削除
         df = pd.DataFrame(total_v_entries).dropna(subset=["abs"])
 
-        print(df)
+        # print(df)
         # "duration_valid"がTrueのみのものを抽出する
         duration_df = df[df["duration_valid"] == True]
 
@@ -905,7 +906,7 @@ class tgdata:
                 df_vent = others_df[
                     (others_df["start"] >= pr_start) & (others_df["end"] <= pr_end)
                 ]
-                print(df_vent)
+                # print(df_vent)
 
                 # pr毎に最小値と最大値を保存する
                 # pr内に有効なvが無い場合は対象としない
@@ -985,357 +986,37 @@ class tgdata:
 
         return
 
-    def duration(self, tg):
-        # print('duration')
-        # tg._tierDict['Phrases'].entries
-        # pr_startからpr_endまでの間で発生したvを全て対象にする
-        # tg._tierDict['DFauto (English)'].entries
-
-        #############################################################################
-        # nPVIの計算
-        # 隣り合う母音(Pair)の長さの差（絶対値）を、２つの母音の長さの平均で割ったものを合計し、
-        # 母音の数―１（すなわちペアの数）で割ったものに１００をかけたもの。
-
-        ################################ 20230910 ###################################
-        nPVI, nPVIn, nVarPco, nVarPcon = self.calculate_duration(tg)
-        self.nPVI = nPVI
-        self.nPVIn = nPVIn
-        self.nVarPco = nVarPco
-        self.nVarPcon = nVarPcon
-        #############################################################################
-
-        total_v_entries = []
-        max_and_min_in_prs = []
-        max_and_min_in_PitRangeAv = []
-        max_and_min_in_IntRangeAv = []
-        undefined = 0
-        for ph_entry in tg._tierDict["Phrases"].entries:
-            v_entries = []
-
-            # Tier2 Phrases で　PRの開始と終了を取得する pr_start, pr_end,
-            if ph_entry.label == "pr":
-                pr_start = ph_entry.start
-                pr_end = ph_entry.end
-
-                for i, v in enumerate(tg._tierDict["DFauto (English)"].entries):
-                    dfeng_entry = v
-
-                    # prの範囲内だった場合で、labelがvかvfの場合
-                    if (
-                        pr_start <= dfeng_entry.start
-                        and dfeng_entry.end <= pr_end
-                        and dfeng_entry.label in ["v", "vf"]
-                    ):
-                        # vだった場合に追加する。
-
-                        # Pitch用の計算###########################
-                        f0 = tg._tierDict["Pitch"].entries[i].label
-
-                        # f0が--undefined--だった場合、一つ前のPitch_PPD_validを無効にする
-                        if f0 == "--undefined--" and i != 0:
-                            Mel = "--undefined--"
-                            v_entries[-1]["Pitch_PPD_valid"] = False
-                            undefined += 1
-                        else:
-                            Mel = 2595 * math.log10(1 + float(f0) / 700)
-
-                        # Intensity用の計算########################
-                        dB = tg._tierDict["Intensity"].entries[i].label
-                        ########################################
-                        dict_v_entry = {
-                            "start": dfeng_entry.start,
-                            "end": dfeng_entry.end,
-                            "duration": dfeng_entry.end - dfeng_entry.start,
-                            "duration_valid": True,
-                            "is_DurRangeAv_target": True,
-                            "Tier3Index": i,
-                            "f0": f0,
-                            "Mel": Mel,
-                            "Pitch_PPD_valid": True,
-                            "Pitch_other_valid": True,
-                            "dB": float(dB),
-                            "Intensity_PID_valid": True,
-                            "Intensity_other_valid": True,
-                        }
-
-                        v_entries.append(dict_v_entry)
-
-                    # 空白は無視する
-                    elif dfeng_entry.label == "":
-                        pass
-
-                    else:
-                        # v_entriesが0ではなく、かつvではなかった場合、一つ前のvを無効にする
-                        # PPD_validとPitch_other_validも無効にする
-                        if v_entries:
-                            v_entries[-1]["duration_valid"] = False
-                            v_entries[-1]["is_DurRangeAv_target"] = False
-                            v_entries[-1]["Pitch_PPD_valid"] = False
-                            # v_entries[-1]["Pitch_other_valid"] = False
-                            v_entries[-1]["Intensity_PID_valid"] = False
-                            # v_entries[-1]["Intensity_other_valid"] = False
-
-            # 絶対値と平均を取得していく
-            for i in range(0, len(v_entries)):
-                # ”pr”範囲の最後のを含むペアは、計算に入れない
-                if i == len(v_entries) - 1:
-                    # 最後を開始とする範囲と
-                    # v_entries[i]["abs"] = 0
-                    # v_entries[i]["avg"] = 0
-
-                    # 最後の一つ前から最後までの範囲を無効にする
-                    v_entries[i - 1]["duration_valid"] = False
-                    v_entries[i - 1]["Pitch_PPD_valid"] = False
-                    v_entries[i - 1]["Intensity_PID_valid"] = False
-                    v_entries[i]["is_DurRangeAv_target"] = False
-                    v_entries[i]["Pitch_other_valid"] = False
-                    v_entries[i]["Intensity_other_valid"] = False
-
-                else:
-                    # 隣り合う母音(Pair)の長さの差（絶対値）
-                    v_entries[i]["abs"] = abs(
-                        v_entries[i + 1]["duration"] - v_entries[i]["duration"]
-                    )
-
-                    # 隣り合う母音(Pair)の長さの平均
-                    v_entries[i]["avg"] = (
-                        v_entries[i + 1]["duration"] + v_entries[i]["duration"]
-                    ) / 2
-
-                    # absをabgで割ったもの
-                    v_entries[i]["abs_divided_by_avg"] = (
-                        v_entries[i]["abs"] / v_entries[i]["avg"]
-                    )
-
-                    # 隣り合うMelの長さの差（絶対値）
-                    try:
-                        v_entries[i]["abs_Mel"] = abs(
-                            v_entries[i + 1]["Mel"] - v_entries[i]["Mel"]
-                        )
-                    except TypeError:
-                        pass
-
-                    # 隣り合うdBの差(絶対値)
-                    v_entries[i]["abs_dB"] = abs(
-                        float(v_entries[i + 1]["dB"]) - float(v_entries[i]["dB"])
-                    )
-
-            # pr毎に最小値と最大値を保存する
-            # pr内に有効なvが無い場合は対象としない
-            df_vent = pd.DataFrame(v_entries)
-            if len(df_vent):
-                df_vent = df_vent[df_vent["is_DurRangeAv_target"] == True]
-
-                # vが１つしかない場合はターゲットから外す
-                if len(df_vent) > 1:
-                    max_and_min_in_prs.append(
-                        {
-                            "max": df_vent["duration"].max(),
-                            "min": df_vent["duration"].min(),
-                        }
-                    )
-
-            df_vent = pd.DataFrame(v_entries)
-            if len(df_vent):
-                df_vent = df_vent[df_vent["Pitch_other_valid"] == True]
-                df_vent = df_vent[df_vent["Mel"] != "--undefined--"]
-
-                # vが１つしかない場合はターゲットから外す
-                if len(df_vent) > 1:
-                    max_and_min_in_PitRangeAv.append(
-                        {"max": df_vent["Mel"].max(), "min": df_vent["Mel"].min()}
-                    )
-
-            df_vent = pd.DataFrame(v_entries)
-            if len(df_vent):
-                df_vent = df_vent[df_vent["Intensity_other_valid"] == True]
-
-                # vが１つしかない場合はターゲットから外す
-                if len(df_vent) > 1:
-                    max_and_min_in_IntRangeAv.append(
-                        {"max": df_vent["dB"].max(), "min": df_vent["dB"].min()}
-                    )
-
-            for item in v_entries:
-                total_v_entries.append(item)
-
-        # absにNaNがある行を削除
-        df = pd.DataFrame(total_v_entries).dropna(subset=["abs"])
-
-        # nVarDco 母音の長さの標準偏差を平均で割ったものに100をかけたもの。
-        nVarDco = df["duration"].std() / df["duration"].mean() * 100
-        self.nVarDco = nVarDco
-        # nVarDcon上記3．で、nVarcoの計算に使われた”v”の数。
-        nVarDcon = len(df)
-        self.nVarDcon = nVarDcon
-        # DurAllAv 全ての”v”（”vf”は除く）の長さの平均。
-        DurAllAv = df["duration"].mean()
-        self.DurAllAv = DurAllAv
-
-        # Pitch #########################################################
-        # nVarPco : 母音のピッチの標準偏差を平均で割ったものに100をかけたもの。
-        # ”vf”, ”fp”, “rp”, “vl”, “jp”, “--undefined—"を除く
-        dfmel = df[df["Mel"] != "--undefined--"]["Mel"]
-        nVarPco = dfmel.std() / dfmel.mean() * 100
-        self.nVarPco = nVarPco
-
-        # nVarPcon : nVarPconの計算に使われたペアの数。
-        nVarPcon = len(dfmel)
-        self.nVarPcon = nVarPcon
-
-        # PitAllAv : Melの平均
-        PitAllAv = dfmel.mean()
-        self.PitAllAv = PitAllAv
-        #################################################################
-
-        # Intensity #####################################################
-        # nVarIco : 母音のIntensityの標準偏差を平均で割ったものに100をかけたもの。
-        # ”vf”, ”fp”, “rp”, “vl”, “jp”を除く。
-        nVarIco = df["dB"].std() / df["dB"].mean() * 100
-        self.nVarIco = nVarIco
-        nVarIcon = len(df)
-        self.nVarIcon = nVarIcon
-
-        IntAllAv = df["dB"].mean()
-        self.IntAllAv = IntAllAv
-        #################################################################
-        # "duration_valid"がTrueのみのものを抽出する
-        df = df[df["duration_valid"] == True]
-        # nPVI = df["abs_divided_by_avg"].sum() / len(df) * 100
-        # nPVIn = len(df)
-
-        # DurRangeAv : Tier2の各”pr”の範囲内にあるTier3の”v”のピッチの最大値と最小値の差を出し、
-        # それらを全てのprで平均する。”vf”, ”fp”, “rp”, “vl”, “jp”, “--undefined—"を除く。
-
-        dif_list = [x["max"] - x["min"] for x in max_and_min_in_prs]
-        DurRangeAv = sum(dif_list) / len(dif_list)
-
-        self.DurRangeAv = DurRangeAv
-
-        # Pitch #####################################################################################################
-        # PitRangeAv : Tier2の各”pr”の範囲内にあるTier3の”v”のピッチの最大値と最小値の差を出し、それらを全てのprで平均する。
-        # ”vf”, ”fp”, “rp”, “vl”, “jp”, “--undefined—"を除く。
-        dif_list_PitRangeAv = [x["max"] - x["min"] for x in max_and_min_in_PitRangeAv]
-        PitRangeAv = sum(dif_list_PitRangeAv) / len(dif_list_PitRangeAv)
-        self.PitRangeAv = PitRangeAv
-
-        # PPD　隣り合う母音の(Pair)の声の高さ(Pitch:Mel)の差の平均を出し、それをすべてのPairで平均
-        # ppd = df["abs_Mel"].dropna().mean()
-        df_PPD = df["abs_Mel"].dropna()
-        ppd = df_PPD.mean()
-        self.PPD = ppd
-        PPDn = len(df_PPD)
-        self.PPDn = PPDn
-        # undefinedの数
-        self.Undefined = undefined
-        #############################################################################################################
-
-        # Intensity #################################################################################################
-        # ”vf”, ”fp”, “rp”, “vl”, “jp”,を除く。
-        dif_list_IntRangeAv = [x["max"] - x["min"] for x in max_and_min_in_IntRangeAv]
-        IntRangeAv = sum(dif_list_IntRangeAv) / len(dif_list_IntRangeAv)
-        self.IntRangeAv = IntRangeAv
-
-        df_pid = df["abs_dB"].dropna()
-        pid = df_pid.mean()
-        self.PID = pid
-        pidn = len(df_pid)
-        self.PIDn = pidn
-        #############################################################################################################
-        # print('duration完了')
-        return True
-
-
-# def tg_L4rp_to_L3rp(textgrid_file_path: str):
-#     """L4のrpをL3のRPに変更する
-
-#     Args:
-#         textgrid_file_path (str): textgridファイルのパス
-#     """
-
-#     # TextGridを読み込む
-#     tg = textgrid.openTextgrid(textgrid_file_path, includeEmptyIntervals=True)
-
-#     # Tier4に"rp"というラベルのついたintervalを検索する
-#     rp_intervals = []
-#     for interval in tg._tierDict["Repair"].entries:
-#         if interval.label == "rp":
-#             rp_intervals.append(interval)
-
-#     # Tier3に"v"というラベルのついたintervalのラベルを変更する
-#     tier3 = tg._tierDict["DFauto (English)"]
-#     for interval in tier3.entries:
-#         for rp_interval in rp_intervals:
-#             if interval.start >= rp_interval.start and interval.end <= rp_interval.end:
-#                 if interval.label == "v":
-#                     tier3.insertEntry(
-#                         (interval.start, interval.end, "rp"),
-#                         collisionMode="replace",
-#                         collisionReportingMode="silence",
-#                     )
-
-#     #  Tier2に"pr"というラベルの付いたintervalのラベルを変更する
-#     tier2 = tg._tierDict["Phrases"]
-#     for interval in tier2.entries:
-#         for rp_interval in rp_intervals:
-#             if interval.start >= rp_interval.start and interval.end <= rp_interval.end:
-#                 if interval.label == "pr":
-#                     tier2.insertEntry(
-#                         (interval.start, interval.end, "rp"),
-#                         collisionMode="replace",
-#                         collisionReportingMode="silence",
-#                     )
-
-#     # Tire3で"fp"の部分は、Tier2で"fp"とするプログラム
-
-#     # Tier3に"fp"というラベルのついたintervalを検索する
-#     fp_intervals = []
-#     for interval in tg._tierDict["DFauto (English)"].entries:
-#         if interval.label == "fp":
-#             fp_intervals.append(interval)
-
-#     #  Tier2に"pr"というラベルの付いたintervalのラベルを変更する
-#     tier2 = tg._tierDict["Phrases"]
-#     for interval in tier2.entries:
-#         for fp_interval in fp_intervals:
-#             if interval.start >= fp_interval.start and interval.end <= fp_interval.end:
-#                 if interval.label == "pr":
-#                     tier2.insertEntry(
-#                         (interval.start, interval.end, "fp"),
-#                         collisionMode="replace",
-#                         collisionReportingMode="silence",
-#                     )
-
-#     # 変更後のTextGridを上書き保存する
-#     tg.save(textgrid_file_path, format="short_textgrid", includeBlankSpaces=True)
-
 
 def T2_delete_start_end(textgrid_file: textgrid) -> textgrid:
+    ### 20230913 無効に ###
     # - Tier2の最初と最後に記号があったら消去する(Phonation Rateの計算前に実行する)
-    if textgrid_file.tiers[1].entries[0].start == textgrid_file.minTimestamp:
-        textgrid_file.tiers[1].insertEntry(
-            (
-                textgrid_file.tiers[1].entries[0].start,
-                textgrid_file.tiers[1].entries[0].end,
-                "",
-            ),
-            collisionMode="replace",
-            collisionReportingMode="silence",
-        )
 
-    t2last = len(textgrid_file.tiers[1].entries) - 1
-    if textgrid_file.tiers[1].entries[t2last].end == textgrid_file.maxTimestamp:
-        textgrid_file.tiers[1].insertEntry(
-            (
-                textgrid_file.tiers[1].entries[t2last].start,
-                textgrid_file.tiers[1].entries[t2last].end,
-                "",
-            ),
-            collisionMode="replace",
-            collisionReportingMode="silence",
-        )
+    print("この処理は20230913に無効に設定されています")
 
-    return textgrid_file
+    # if textgrid_file.tiers[1].entries[0].start == textgrid_file.minTimestamp:
+    #     textgrid_file.tiers[1].insertEntry(
+    #         (
+    #             textgrid_file.tiers[1].entries[0].start,
+    #             textgrid_file.tiers[1].entries[0].end,
+    #             "",
+    #         ),
+    #         collisionMode="replace",
+    #         collisionReportingMode="silence",
+    #     )
+
+    # t2last = len(textgrid_file.tiers[1].entries) - 1
+    # if textgrid_file.tiers[1].entries[t2last].end == textgrid_file.maxTimestamp:
+    #     textgrid_file.tiers[1].insertEntry(
+    #         (
+    #             textgrid_file.tiers[1].entries[t2last].start,
+    #             textgrid_file.tiers[1].entries[t2last].end,
+    #             "",
+    #         ),
+    #         collisionMode="replace",
+    #         collisionReportingMode="silence",
+    #     )
+
+    # return textgrid_file
 
 
 def tg_check(textgrid_file_path: str) -> Tuple[bool, List[str]]:
@@ -1367,7 +1048,36 @@ def tg_check(textgrid_file_path: str) -> Tuple[bool, List[str]]:
             textgrid_file_path, includeEmptyIntervals=True
         )
 
-        textgrid_file = T2_delete_start_end(textgrid_file)
+        # 20230913　削除ではなくチェックに
+        # textgrid_file = T2_delete_start_end(textgrid_file)
+        # チェック：Tier2の最初と最後の境界に記号があることはない。
+
+        chk_flag = True
+
+        if (
+            textgrid_file.tiers[1].entries[0].start == textgrid_file.minTimestamp
+            and textgrid_file.tiers[1].entries[0].label != ""
+        ):
+            label = textgrid_file.tiers[1].entries[0].label
+            _ = textgrid_file.tiers[1].entries[0].start
+            error_messages.append(
+                f"{textgrid_file_path} チェックエラー:TTier2の最初と最後の境界に記号があることはない。  "
+                + f" {_} "
+                + label
+            )
+
+        t2last = len(textgrid_file.tiers[1].entries) - 1
+        if (
+            textgrid_file.tiers[1].entries[t2last].end == textgrid_file.maxTimestamp
+            and textgrid_file.tiers[1].entries[t2last].label != ""
+        ):
+            label = textgrid_file.tiers[1].entries[t2last].label
+            _ = textgrid_file.tiers[1].entries[t2last].start
+            error_messages.append(
+                f"{textgrid_file_path} チェックエラー:Tier2の最初と最後の境界に記号があることはない。  "
+                + f" {_} "
+                + label
+            )
 
         # - 全体: Tier6, 7がない。
         if textgrid_file.tiers.__len__() < 7:
@@ -1379,7 +1089,7 @@ def tg_check(textgrid_file_path: str) -> Tuple[bool, List[str]]:
             if label not in ("pr", "ps", "psb", "fp", ""):
                 error_messages.append(
                     f"{textgrid_file_path} チェックエラー:Tier2:pr, ps, psb, fp以外の記号があることはない  "
-                    + " {_} "
+                    + f" {_} "
                     + label
                 )
 
@@ -1454,6 +1164,20 @@ def tg_check(textgrid_file_path: str) -> Tuple[bool, List[str]]:
                     + label
                 )
 
+        # - Tier7:Pitchの値の異常値。。数値に変換できない
+        for _, __, label in textgrid_file.tiers[6].entries:
+            if label != "":
+                try:
+                    float(label)
+
+                except ValueError:
+                    error_messages.append(
+                        f"{textgrid_file_path} チェックエラー:Tier7:Pitchの値の異常値。数値に変換できない  "
+                        + f" {_} "
+                        + label
+                    )
+                    return False, error_messages
+
         # - Tier7:Pitchの値の異常値。pitchの値がpitchの平均値の２分の１より低い値
         pitlist = [float(x[2]) for x in textgrid_file.tiers[6].entries if x[2] != ""]
         avg = sum(pitlist) / len(pitlist)
@@ -1466,6 +1190,45 @@ def tg_check(textgrid_file_path: str) -> Tuple[bool, List[str]]:
                         + f" {_} "
                         + label
                     )
+
+        # - Tier7:Tier3とTier7の境界が一致していない。
+        pitlist = [float(x[2]) for x in textgrid_file.tiers[6].entries if x[2] != ""]
+        avg = sum(pitlist) / len(pitlist)
+
+        for i, item in enumerate(textgrid_file.tiers[2].entries):
+            _ = item.start
+            __ = item.end
+            label = item.label
+
+            # Tier3のラベルがある時
+            if label != "":
+                # Tier7とstart,endが一致し、かつTier7のラベルが空白ではない
+                if (
+                    _ == textgrid_file.tiers[6].entries[i].start
+                    and __ == textgrid_file.tiers[6].entries[i].end
+                    and textgrid_file.tiers[6].entries[i].label != ""
+                ):
+                    pass
+                else:
+                    error_messages.append(
+                        f"{textgrid_file_path} チェックエラー:Tier3とTier7の境界が一致していない  "
+                        + f" {_} "
+                        + label
+                    )
+                    break
+
+                t7label = textgrid_file.tiers[6].entries[i].label
+
+                try:
+                    float(t7label)
+
+                except ValueError:
+                    error_messages.append(
+                        f"{textgrid_file_path} チェックエラー:Tier7:Pitchの値の異常値。数値に変換できない  "
+                        + f" {_} "
+                        + label
+                    )
+                    break
 
         if error_messages:
             return False, error_messages
@@ -1505,9 +1268,11 @@ def main():
         # コピー先のファイルパスを設定
         destination_path = filename.replace("./tgfiles", "./success")
 
-        # 成功したものはファイルをコピー
+        # 成功したものはファイルを移動
         tgd.save(destination_path)
         # shutil.copy2(filename, destination_path)
+        # shutil.move(filename, destination_path)
+        os.remove(filename)
 
     filename = "FluencyProsodyMasterData.xlsx"
 
